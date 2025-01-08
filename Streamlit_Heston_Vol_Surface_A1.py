@@ -25,7 +25,7 @@ Risk_Free_Rate = st.sidebar.number_input(
 # Strike Price Input
 st.sidebar.header("Strike Price Inputs")
 min_strike_price_pct = st.sidebar.number_input(
-    "Minimum Strike Price %",
+    "Minimum Strike Price",
     min_value=10.00,
     max_value=499.00,
     value=80.00,
@@ -33,9 +33,9 @@ min_strike_price_pct = st.sidebar.number_input(
     format="%.1f"
 )
 max_strike_price_pct = st.sidebar.number_input(
-    "Maximum Strike Price %",
+    "Maximum Strike Price",
     min_value=11.0,
-    max_value=500.00,
+    max_value=1000.00,
     value=130.00,
     step=1.0,
     format="%.1f"
@@ -172,31 +172,40 @@ if spot_price and not options_df.empty:
     # Create DataFrames
     greeks_df = pd.DataFrame(greeks)
 
-    # Volatility Surface Plot
+    # Debugging and validation
+    valid_data = greeks_df.dropna(subset=["impliedVolatility", "timeToExpiration", "strike"])
+    if valid_data.empty:
+        st.error("No valid data available for the volatility surface. Please check input parameters.")
+        st.stop()
+
+    # Extract valid data for plotting
+    X = valid_data["impliedVolatility"].values
+    Y = valid_data["timeToExpiration"].values
+    Z = valid_data["strike"].values
+
+    # Check ranges of X, Y, Z for better debugging
+    st.write("Implied Volatility (X-axis) range:", X.min(), X.max())
+    st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
+    st.write("Strike Price (Z-axis) range:", Z.min(), Z.max())
+
+    # Plot the surface
     st.write("### Implied Volatility Surface Area")
-    if not greeks_df.empty:
-        X = greeks_df["impliedVolatility"].values
-        Y = greeks_df["timeToExpiration"].values
-        Z = greeks_df["strike"].values
+    fig = go.Figure(data=[go.Surface(
+        x=X, y=Y, z=Z, colorscale="Viridis", colorbar_title="Strike Price ($)"
+    )])
+    fig.update_layout(
+        title=f"Implied Volatility Surface for {ticker_symbol}",
+        scene=dict(
+            xaxis_title="Implied Volatility",
+            yaxis_title="Time to Maturity (Years)",
+            zaxis_title="Strike Price ($)"
+        ),
+        autosize=False,
+        width=900,
+        height=800,
+    )
 
-        fig = go.Figure(data=[go.Surface(
-            x=X, y=Y, z=Z, colorscale="Viridis", colorbar_title="Strike Price ($)"
-        )])
-        fig.update_layout(
-            title=f"Implied Volatility Surface for {ticker_symbol}",
-            scene=dict(
-                xaxis_title="Implied Volatility",
-                yaxis_title="Time to Maturity (Years)",
-                zaxis_title="Strike Price ($)"
-            ),
-            autosize=False,
-            width=900,
-            height=800,
-        )
-
-        st.plotly_chart(fig)
-    else:
-        st.error("No valid data available for the volatility surface.")
+    st.plotly_chart(fig)
 
     # Display Options Prices Table
     st.write("### Options Prices")
