@@ -154,10 +154,12 @@ except Exception as e:
     st.error(f'An error occurred while fetching spot price data: {e}')
     st.stop()
 
+# Validate spot_price
 if pd.isna(spot_price):
     st.error("Spot price is invalid or missing. Unable to calculate moneyness.")
     st.stop()
 
+# Validate that options_df has valid strikes
 if options_df['strike'].isna().any():
     st.warning("Some strike prices are missing or invalid. These rows will be removed.")
     options_df = options_df.dropna(subset=['strike'])
@@ -166,18 +168,23 @@ if options_df.empty:
     st.error("No valid option data available after filtering strike prices. Please adjust your inputs.")
     st.stop()
 
+# Calculate moneyness
 options_df['moneyness'] = options_df['strike'] / spot_price
 
+# Validate moneyness column
 if options_df['moneyness'].isna().any() or options_df['moneyness'].empty:
     st.error("Moneyness values are invalid or missing. Unable to continue.")
     st.stop()
 
+# Ensure moneyness values are valid
 moneyness_min = options_df['moneyness'].min()
 moneyness_max = options_df['moneyness'].max()
 
+# Debugging logs to check the issue
 st.write("Moneyness Min:", moneyness_min)
 st.write("Moneyness Max:", moneyness_max)
 
+# Check if moneyness range is valid
 if pd.isna(moneyness_min) or pd.isna(moneyness_max):
     st.error("Moneyness range is invalid. Unable to create bins.")
     st.stop()
@@ -188,10 +195,12 @@ if moneyness_min == moneyness_max:
 else:
     moneyness_bins = np.linspace(moneyness_min, moneyness_max, 4)
 
+# Ensure bins are strictly increasing
 if len(set(moneyness_bins)) < len(moneyness_bins):
     st.warning("Bins have overlapping or identical values. Expanding range slightly.")
     moneyness_bins = np.linspace(moneyness_min - 0.01, moneyness_max + 0.01, 4)
 
+# Add tranches
 try:
     tranches = ['Low', 'Mid', 'High']
     options_df['tranche'] = pd.cut(
@@ -204,28 +213,53 @@ except ValueError as e:
     st.error(f"Error in assigning tranches: {e}")
     st.stop()
 
-if 'hestonPrice' not in options_df.columns:
-    st.error("'hestonPrice' column is missing. Check Heston model calculations.")
-    st.stop()
-
+# Ensure options_df is not empty
 if options_df.empty:
-    st.error("No valid options data available after filtering. Please adjust your inputs.")
+    st.error("No valid options data available for Heston model calculations. Please adjust your inputs.")
     st.stop()
 
-st.write("Available columns in options_df:", options_df.columns)
-
-if 'tranche' not in options_df.columns:
-    st.error("'tranche' column is missing. Check moneyness binning.")
+# Validate required columns
+required_columns = ['strike', 'timeToExpiration']
+missing_columns = [col for col in required_columns if col not in options_df.columns]
+if missing_columns:
+    st.error(f"Missing required columns for Heston model calculations: {missing_columns}")
     st.stop()
 
-if options_df[['hestonPrice', 'tranche']].isna().any().any():
-    st.warning("Some rows have missing values in 'hestonPrice' or 'tranche'. These rows will be excluded.")
-    options_df = options_df.dropna(subset=['hestonPrice', 'tranche'])
+# Debug: Print the first few rows of options_df
+st.write("Options DataFrame (first few rows):")
+st.write(options_df.head())
 
+# Calculate hestonPrice with error handling
+def safe_heston_call_price(row):
+    try:
+        return heston_call_price(
+            S=spot_price,
+            K=row['strike'],
+            T=row['timeToExpiration'],
+            r=Risk_Free_Rate,
+            v0=v0,
+            kappa=kappa,
+            theta=theta,
+            sigma=sigma,
+            rho=rho,
+            q=dividend_yield
+        )
+    except Exception as e:
+        st.warning(f"Error calculating hestonPrice for strike {row['strike']}, T={row['timeToExpiration']}: {e}")
+        return np.nan
+
+with st.spinner('Calculating option prices using Heston model...'):
+    options_df['hestonPrice'] = options_df.apply(safe_heston_call_price, axis=1)
+
+# Drop rows with NaN hestonPrice
+options_df.dropna(subset=['hestonPrice'], inplace=True)
+
+# Check if hestonPrice calculation succeeded
 if options_df.empty:
-    st.error("No valid options data available after removing rows with missing values.")
+    st.error("All Heston model calculations failed. Please check your input parameters.")
     st.stop()
 
+# Calculate tranche summary
 try:
     tranche_summary = options_df.groupby('tranche').agg(
         Low=('hestonPrice', 'min'),
@@ -239,14 +273,17 @@ except KeyError as e:
     st.error(f"Error in calculating tranche summary: {e}")
     st.stop()
 
+# Prepare data for the 3D chart
 Y = options_df['strike'].values
 X = options_df['timeToExpiration'].values
 Z = options_df['hestonPrice'].values
 
+# Check for valid chart data
 if len(X) == 0 or len(Y) == 0 or len(Z) == 0:
     st.error("Insufficient data to plot the volatility surface. Please check your input parameters.")
     st.stop()
 
+# Create 3D chart
 ti = np.linspace(X.min(), X.max(), 50)
 ki = np.linspace(Y.min(), Y.max(), 50)
 T, K = np.meshgrid(ti, ki)
