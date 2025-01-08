@@ -76,7 +76,7 @@ rho = st.sidebar.number_input("Correlation (rho)", value=-0.7, step=0.1)
 
 st.sidebar.header('Strike Price Inputs')
 min_strike_price_pct = st.sidebar.number_input(
-    'Minimum Strike Price',
+    'Minimum Strike Price %',
     min_value=10.00,
     max_value=499.00,
     value=80.00,
@@ -84,7 +84,7 @@ min_strike_price_pct = st.sidebar.number_input(
     format="%.1f"
 )
 max_strike_price_pct = st.sidebar.number_input(
-    'Maximum Strike Price',
+    'Maximum Strike Price %',
     min_value=11.0,
     max_value=500.00,
     value=130.00,
@@ -154,43 +154,33 @@ except Exception as e:
     st.error(f'An error occurred while fetching spot price data: {e}')
     st.stop()
 
-options_df['daysToExpiration'] = (options_df['expirationDate'] - today).dt.days
-options_df['timeToExpiration'] = options_df['daysToExpiration'] / 365
+if pd.isna(spot_price):
+    st.error("Spot price is invalid or missing. Unable to calculate moneyness.")
+    st.stop()
 
-options_df = options_df[
-    (options_df['strike'] >= spot_price * (min_strike_price_pct / 100)) &
-    (options_df['strike'] <= spot_price * (max_strike_price_pct / 100))
-]
+if options_df['strike'].isna().any():
+    st.warning("Some strike prices are missing or invalid. These rows will be removed.")
+    options_df = options_df.dropna(subset=['strike'])
 
-options_df.reset_index(drop=True, inplace=True)
-
-with st.spinner('Calculating option prices using Heston model...'):
-    options_df['hestonPrice'] = options_df.apply(
-        lambda row: heston_call_price(
-            S=spot_price,
-            K=row['strike'],
-            T=row['timeToExpiration'],
-            r=Risk_Free_Rate,
-            v0=v0,
-            kappa=kappa,
-            theta=theta,
-            sigma=sigma,
-            rho=rho,
-            q=dividend_yield
-        ), axis=1
-    )
-
-options_df.dropna(subset=['hestonPrice'], inplace=True)
-
-options_df.sort_values('strike', inplace=True)
+if options_df.empty:
+    st.error("No valid option data available after filtering strike prices. Please adjust your inputs.")
+    st.stop()
 
 options_df['moneyness'] = options_df['strike'] / spot_price
+
+if options_df['moneyness'].isna().any() or options_df['moneyness'].empty:
+    st.error("Moneyness values are invalid or missing. Unable to continue.")
+    st.stop()
 
 moneyness_min = options_df['moneyness'].min()
 moneyness_max = options_df['moneyness'].max()
 
 st.write("Moneyness Min:", moneyness_min)
 st.write("Moneyness Max:", moneyness_max)
+
+if pd.isna(moneyness_min) or pd.isna(moneyness_max):
+    st.error("Moneyness range is invalid. Unable to create bins.")
+    st.stop()
 
 if moneyness_min == moneyness_max:
     st.warning("All moneyness values are identical. Using default fallback bins.")
@@ -227,12 +217,15 @@ Y = options_df['strike'].values
 X = options_df['timeToExpiration'].values
 Z = options_df['hestonPrice'].values
 
+if len(X) == 0 or len(Y) == 0 or len(Z) == 0:
+    st.error("Insufficient data to plot the volatility surface. Please check your input parameters.")
+    st.stop()
+
 ti = np.linspace(X.min(), X.max(), 50)
 ki = np.linspace(Y.min(), Y.max(), 50)
 T, K = np.meshgrid(ti, ki)
 
 Zi = griddata((X, Y), Z, (T, K), method='linear')
-
 Zi = np.ma.array(Zi, mask=np.isnan(Zi))
 
 fig = go.Figure(data=[go.Surface(
