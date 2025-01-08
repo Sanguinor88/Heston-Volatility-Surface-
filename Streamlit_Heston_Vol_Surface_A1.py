@@ -174,38 +174,46 @@ if spot_price and not options_df.empty:
 
     # Debugging and validation
     valid_data = greeks_df.dropna(subset=["impliedVolatility", "timeToExpiration", "strike"])
-    if valid_data.empty:
-        st.error("No valid data available for the volatility surface. Please check input parameters.")
-        st.stop()
+if valid_data.empty:
+    st.error("No valid data available for the volatility surface. Please check input parameters.")
+    st.stop()
 
-    # Extract valid data for plotting
-    X = valid_data["impliedVolatility"].values
-    Y = valid_data["timeToExpiration"].values
-    Z = valid_data["strike"].values
+# Extract valid data for plotting
+X = valid_data["impliedVolatility"].values
+Y = valid_data["timeToExpiration"].values
+Z = valid_data["strike"].values
 
-    # Check ranges of X, Y, Z for better debugging
-    st.write("Implied Volatility (X-axis) range:", X.min(), X.max())
-    st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
-    st.write("Strike Price (Z-axis) range:", Z.min(), Z.max())
+# Check ranges of X, Y, Z for better debugging
+st.write("Implied Volatility (X-axis) range:", X.min(), X.max())
+st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
+st.write("Strike Price (Z-axis) range:", Z.min(), Z.max())
 
-    # Plot the surface
-    st.write("### Implied Volatility Surface Area")
-    fig = go.Figure(data=[go.Surface(
-        x=X, y=Y, z=Z, colorscale="Viridis", colorbar_title="Strike Price ($)"
-    )])
-    fig.update_layout(
-        title=f"Implied Volatility Surface for {ticker_symbol}",
-        scene=dict(
-            xaxis_title="Implied Volatility",
-            yaxis_title="Time to Maturity (Years)",
-            zaxis_title="Strike Price ($)"
-        ),
-        autosize=False,
-        width=900,
-        height=800,
-    )
+# Create a grid for the surface
+xi = np.linspace(X.min(), X.max(), 50)
+yi = np.linspace(Y.min(), Y.max(), 50)
+xi, yi = np.meshgrid(xi, yi)
 
-    st.plotly_chart(fig)
+# Interpolate Z values over the grid
+zi = griddata((X, Y), Z, (xi, yi), method="linear")
+
+# Plot the surface
+st.write("### Implied Volatility Surface Area")
+fig = go.Figure(data=[go.Surface(
+    x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Strike Price ($)"
+)])
+fig.update_layout(
+    title=f"Implied Volatility Surface for {ticker_symbol}",
+    scene=dict(
+        xaxis_title="Implied Volatility",
+        yaxis_title="Time to Maturity (Years)",
+        zaxis_title="Strike Price ($)"
+    ),
+    autosize=False,
+    width=900,
+    height=800,
+)
+
+st.plotly_chart(fig)
 
     # Display Options Prices Table
     st.write("### Options Prices")
