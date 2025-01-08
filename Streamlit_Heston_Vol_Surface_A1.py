@@ -10,7 +10,6 @@ from scipy.integrate import quad
 import plotly.graph_objects as go
 
 st.title('Implied Volatility Surface Area')
-st.sidebar.write('By Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241')
 
 def heston_call_price(S, K, T, r, v0, kappa, theta, sigma, rho, q=0):
     def integrand(phi, Pnum):
@@ -191,7 +190,7 @@ moneyness_min = options_df['moneyness'].min()
 moneyness_max = options_df['moneyness'].max()
 
 if moneyness_min == moneyness_max:
-    st.warning("All moneyness values are identical. Default bins will be applied.")
+    st.warning("All moneyness values are identical. Using default fallback bins.")
     moneyness_bins = [moneyness_min - 0.1, moneyness_min, moneyness_min + 0.1]
 else:
     moneyness_bins = np.linspace(moneyness_min, moneyness_max, 4)
@@ -200,13 +199,17 @@ if len(set(moneyness_bins)) < len(moneyness_bins):
     st.error("Unable to create valid moneyness bins. Please check the input data.")
     st.stop()
 
-tranches = ['Low', 'Mid', 'High']
-options_df['tranche'] = pd.cut(
-    options_df['moneyness'], 
-    bins=moneyness_bins, 
-    labels=tranches, 
-    include_lowest=True
-)
+try:
+    tranches = ['Low', 'Mid', 'High']
+    options_df['tranche'] = pd.cut(
+        options_df['moneyness'], 
+        bins=moneyness_bins, 
+        labels=tranches, 
+        include_lowest=True
+    )
+except ValueError as e:
+    st.error(f"Error in assigning tranches: {e}")
+    st.stop()
 
 tranche_summary = options_df.groupby('tranche').agg(
     Low=('hestonPrice', 'min'),
