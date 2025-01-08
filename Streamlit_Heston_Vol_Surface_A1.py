@@ -8,7 +8,7 @@ from scipy.integrate import quad
 import plotly.graph_objects as go
 
 # Title
-st.title("Implied Volatility Surface Area with Greeks")
+st.title("Implied Volatility Surface Area")
 
 # Sidebar Input Parameters
 st.sidebar.header("Input Parameters")
@@ -21,6 +21,29 @@ ticker_symbol = st.sidebar.text_input(
 Risk_Free_Rate = st.sidebar.number_input(
     "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
 )
+
+# Strike Price Input
+st.sidebar.header("Strike Price Inputs")
+min_strike_price_pct = st.sidebar.number_input(
+    "Minimum Strike Price %",
+    min_value=10.00,
+    max_value=499.00,
+    value=80.00,
+    step=1.0,
+    format="%.1f"
+)
+max_strike_price_pct = st.sidebar.number_input(
+    "Maximum Strike Price %",
+    min_value=11.0,
+    max_value=500.00,
+    value=130.00,
+    step=1.0,
+    format="%.1f"
+)
+
+if min_strike_price_pct >= max_strike_price_pct:
+    st.sidebar.error("Minimum percentage must be less than the maximum.")
+    st.stop()
 
 # Heston Model Parameters (set default values)
 kappa = 1.6
@@ -89,6 +112,11 @@ if spot_price and not options_df.empty:
     options_df = options_df[options_df["daysToExpiration"] > 0]
     options_df["timeToExpiration"] = options_df["daysToExpiration"] / 365
 
+    # Filter options by strike price range
+    min_strike = spot_price * (min_strike_price_pct / 100)
+    max_strike = spot_price * (max_strike_price_pct / 100)
+    options_df = options_df[(options_df["strike"] >= min_strike) & (options_df["strike"] <= max_strike)]
+
     # Calculate Greeks for each option
     greeks = []
     for _, row in options_df.iterrows():
@@ -115,7 +143,11 @@ if spot_price and not options_df.empty:
     # Display Greeks Table
     greeks_df = pd.DataFrame(greeks)
     st.write("### Options Greeks")
-    st.dataframe(greeks_df)
+    st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
+
+    # Display Options Prices Table
+    st.write("### Options Prices")
+    st.dataframe(options_df[["strike", "expirationDate", "bid", "ask", "mid"]])
 
     # 3D Surface Plot for Greeks (Delta as an Example)
     X = greeks_df["strike"].values
@@ -140,6 +172,7 @@ if spot_price and not options_df.empty:
     st.plotly_chart(fig)
 else:
     st.error("Failed to retrieve valid options data. Please check your inputs.")
+
 
 st.write("---")
 st.markdown(
