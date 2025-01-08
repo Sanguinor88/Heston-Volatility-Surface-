@@ -69,10 +69,10 @@ dividend_yield = st.sidebar.number_input(
 )
 
 st.sidebar.header('Heston Model Parameters')
-kappa = st.sidebar.number_input("Speed of Mean Reversion (kappa)", value=1.5, step=0.1, min_value=0.01)
-theta = st.sidebar.number_input("Long-Term Variance (theta)", value=0.04, step=0.01, min_value=0.0)
-sigma = st.sidebar.number_input("Volatility of Variance (sigma)", value=0.2, step=0.01, min_value=0.01)
-rho = st.sidebar.number_input("Correlation (rho)", value=-0.7, step=0.1, min_value=-1.0, max_value=1.0)
+kappa = st.sidebar.number_input("Speed of Mean Reversion (kappa)", value=1.5, step=0.1)
+theta = st.sidebar.number_input("Long-Term Variance (theta)", value=0.04, step=0.01)
+sigma = st.sidebar.number_input("Volatility of Variance (sigma)", value=0.2, step=0.01)
+rho = st.sidebar.number_input("Correlation (rho)", value=-0.7, step=0.1)
 
 st.sidebar.header('Strike Price Inputs')
 min_strike_price_pct = st.sidebar.number_input(
@@ -239,3 +239,110 @@ missing_columns = [col for col in required_columns if col not in options_df.colu
 if missing_columns:
     st.error(f"Missing required columns for Heston model calculations: {missing_columns}")
     st.stop()
+
+# Debug: Print the first few rows of options_df
+st.write("Options DataFrame (first few rows):")
+st.write(options_df.head())
+
+# Function to safely calculate Heston call price
+def safe_heston_call_price(row):
+    try:
+        return heston_call_price(
+            S=spot_price,
+            K=row['strike'],
+            T=row['timeToExpiration'],
+            r=Risk_Free_Rate,
+            v0=v0,
+            kappa=kappa,
+            theta=theta,
+            sigma=sigma,
+            rho=rho,
+            q=dividend_yield
+        )
+    except Exception as e:
+        st.warning(f"Error calculating hestonPrice for strike={row['strike']}, T={row['timeToExpiration']}: {e}")
+        return np.nan
+
+# Filter out rows with very short time to expiration
+filtered_options_df = options_df[options_df['timeToExpiration'] > 0.01]
+
+# Check if there are valid rows remaining
+if filtered_options_df.empty:
+    st.error("No valid options data after filtering for time to expiration. Please check your input parameters.")
+    st.stop()
+
+# Calculate hestonPrice with error handling
+with st.spinner('Calculating option prices using Heston model...'):
+    filtered_options_df['hestonPrice'] = filtered_options_df.apply(safe_heston_call_price, axis=1)
+
+# Drop rows with NaN hestonPrice
+filtered_options_df.dropna(subset=['hestonPrice'], inplace=True)
+
+# Check if hestonPrice calculation succeeded
+if filtered_options_df.empty:
+    st.error("All Heston model calculations failed. Please check your input parameters or model configuration.")
+    st.stop()
+
+# Update options_df with successful calculations
+options_df = filtered_options_df
+
+# Calculate tranche summary
+try:
+    tranche_summary = options_df.groupby('tranche').agg(
+        Low=('hestonPrice', 'min'),
+        Mid=('hestonPrice', 'mean'),
+        High=('hestonPrice', 'max')
+    ).reset_index()
+
+    st.write("### Low, Mid, and High Prices by Tranche")
+    st.table(tranche_summary)
+except KeyError as e:
+    st.error(f"Error in calculating tranche summary: {e}")
+    st.stop()
+
+# Render 3D Volatility Surface Chart
+if len(options_df) > 0:
+    # Prepare data for the 3D chart
+    Y = options_df['strike'].values
+    X = options_df['timeToExpiration'].values
+    Z = options_df['hestonPrice'].values
+
+    if len(X) > 0 and len(Y) > 0 and len(Z) > 0:
+        # Create the 3D chart
+        ti = np.linspace(X.min(), X.max(), 50)
+        ki = np.linspace(Y.min(), Y.max(), 50)
+        T, K = np.meshgrid(ti, ki)
+
+        # Interpolate grid for the surface
+        Zi = griddata((X, Y), Z, (T, K), method='linear')
+        Zi = np.ma.array(Zi, mask=np.isnan(Zi))
+
+        fig = go.Figure(data=[go.Surface(
+            x=T, y=K, z=Zi,
+            colorscale='Viridis',
+            colorbar_title='Option Price ($)'
+        )])
+
+        fig.update_layout(
+            title=f'Heston Model Option Price Surface for {ticker_symbol}',
+            scene=dict(
+                xaxis_title='Time to Expiration (years)',
+                yaxis_title='Strike Price ($)',
+                zaxis_title='Option Price ($)'
+            ),
+            autosize=False,
+            width=900,
+            height=800,
+            margin=dict(l=65, r=50, b=65, t=90)
+        )
+
+        st.plotly_chart(fig)
+    else:
+        st.error("Insufficient data to plot the volatility surface. Please check your input parameters.")
+else:
+    st.error("No valid data available to generate the volatility surface.")
+
+st.write("---")
+st.markdown(
+    "By Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241"
+)
