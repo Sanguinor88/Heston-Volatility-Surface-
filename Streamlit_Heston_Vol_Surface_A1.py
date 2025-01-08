@@ -189,15 +189,18 @@ options_df['moneyness'] = options_df['strike'] / spot_price
 moneyness_min = options_df['moneyness'].min()
 moneyness_max = options_df['moneyness'].max()
 
+st.write("Moneyness Min:", moneyness_min)
+st.write("Moneyness Max:", moneyness_max)
+
 if moneyness_min == moneyness_max:
     st.warning("All moneyness values are identical. Using default fallback bins.")
-    moneyness_bins = [moneyness_min - 0.1, moneyness_min, moneyness_min + 0.1]
+    moneyness_bins = [moneyness_min - 0.05, moneyness_min, moneyness_min + 0.05]
 else:
     moneyness_bins = np.linspace(moneyness_min, moneyness_max, 4)
 
 if len(set(moneyness_bins)) < len(moneyness_bins):
-    st.error("Unable to create valid moneyness bins. Please check the input data.")
-    st.stop()
+    st.warning("Bins have overlapping or identical values. Expanding range slightly.")
+    moneyness_bins = np.linspace(moneyness_min - 0.01, moneyness_max + 0.01, 4)
 
 try:
     tranches = ['Low', 'Mid', 'High']
