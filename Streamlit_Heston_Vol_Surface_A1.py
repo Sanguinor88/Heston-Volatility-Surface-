@@ -62,12 +62,6 @@ Risk_Free_Rate = st.sidebar.number_input(
     format="%.4f"
 )
 
-dividend_yield = st.sidebar.number_input(
-    "Dividend Yield (eg, 0.04 for 4%)",
-    value=0.02,
-    format="%.4f"
-)
-
 st.sidebar.header('Heston Model Parameters')
 kappa = st.sidebar.number_input("Speed of Mean Reversion (kappa)", value=1.5, step=0.1)
 theta = st.sidebar.number_input("Long-Term Variance (theta)", value=0.04, step=0.01)
