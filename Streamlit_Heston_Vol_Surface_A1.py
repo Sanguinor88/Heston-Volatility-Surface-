@@ -14,21 +14,24 @@ st.title('Implied Volatility Surface Area')
 def heston_call_price(S, K, T, r, v0, kappa, theta, sigma, rho, q=0):
     def integrand(phi, Pnum):
         """Characteristic function integrand."""
-        i = complex(0, 1)  
+        i = complex(0, 1)  # Imaginary unit
         u = 0.5 if Pnum == 1 else -0.5
         b = kappa + u * rho * sigma
         a = kappa * theta
         d = np.sqrt((rho * sigma * i * phi - b) ** 2 - sigma ** 2 * (2 * u * i * phi - phi ** 2))
         g = (b - rho * sigma * i * phi + d) / ((b - rho * sigma * i * phi - d) + 1e-8)
 
+        # Characteristic function
         C = (r - q) * i * phi * T + (a / sigma ** 2) * ((b - rho * sigma * i * phi + d) * T - 2 * np.log((1 - g * np.exp(d * T)) / (1 - g)))
         D = ((b - rho * sigma * i * phi + d) / sigma ** 2) * ((1 - np.exp(d * T)) / (1 - g * np.exp(d * T)))
         f = np.exp(C + D * v0 + i * phi * np.log(S * np.exp(-q * T)))
         return np.real(np.exp(-i * phi * np.log(K)) * f / (i * phi))
 
+    # Integration for P1 and P2
     P1 = 0.5 + (1 / np.pi) * quad(lambda phi: integrand(phi, 1), 0, np.inf, limit=100)[0]
     P2 = 0.5 + (1 / np.pi) * quad(lambda phi: integrand(phi, 2), 0, np.inf, limit=100)[0]
 
+    # Heston price
     call_price = np.exp(-q * T) * S * P1 - np.exp(-r * T) * K * P2
     return call_price
 
@@ -101,12 +104,12 @@ ticker = yf.Ticker(ticker_symbol)
 today = pd.Timestamp('today').normalize()
 
 try:
-    spot_history = ticker.history(period='1y')  
+    spot_history = ticker.history(period='1y')  # Fetch 1 year of historical data
     if spot_history.empty:
         st.error("Failed to retrieve historical spot price data.")
         st.stop()
     log_returns = np.log(spot_history['Close'] / spot_history['Close'].shift(1))
-    v0 = np.var(log_returns)  
+    v0 = np.var(log_returns)  # Use variance as initial volatility
 except Exception as e:
     st.error(f"Error calculating initial variance: {e}")
     st.stop()
@@ -185,39 +188,6 @@ options_df.dropna(subset=['hestonPrice'], inplace=True)
 options_df.sort_values('strike', inplace=True)
 
 options_df['moneyness'] = options_df['strike'] / spot_price
-
-# Check for variation in moneyness values
-moneyness_min = options_df['moneyness'].min()
-moneyness_max = options_df['moneyness'].max()
-
-if moneyness_min == moneyness_max:
-    st.warning("All moneyness values are identical. Default bins will be applied.")
-    moneyness_bins = [moneyness_min - 0.1, moneyness_min, moneyness_min + 0.1]
-else:
-    moneyness_bins = np.linspace(moneyness_min, moneyness_max, 4)
-
-# Ensure bins are valid
-if len(set(moneyness_bins)) < len(moneyness_bins):
-    st.error("Unable to create valid moneyness bins. Please check the input data.")
-    st.stop()
-
-# Add tranches
-tranches = ['Low', 'Mid', 'High']
-options_df['tranche'] = pd.cut(
-    options_df['moneyness'], 
-    bins=moneyness_bins, 
-    labels=tranches, 
-    include_lowest=True
-)
-
-tranche_summary = options_df.groupby('tranche').agg(
-    Low=('hestonPrice', 'min'),
-    Mid=('hestonPrice', 'mean'),
-    High=('hestonPrice', 'max')
-).reset_index()
-
-st.write("### Low, Mid, and High Prices by Tranche")
-st.table(tranche_summary)
 
 Y = options_df['strike'].values
 X = options_df['timeToExpiration'].values
