@@ -251,7 +251,6 @@ def safe_heston_call_price(row):
             theta=theta,
             sigma=sigma,
             rho=rho,
-            q=dividend_yield
         )
     except Exception as e:
         st.warning(f"Error calculating hestonPrice for strike={row['strike']}, T={row['timeToExpiration']}: {e}")
