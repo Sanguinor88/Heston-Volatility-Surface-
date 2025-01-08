@@ -204,14 +204,40 @@ except ValueError as e:
     st.error(f"Error in assigning tranches: {e}")
     st.stop()
 
-tranche_summary = options_df.groupby('tranche').agg(
-    Low=('hestonPrice', 'min'),
-    Mid=('hestonPrice', 'mean'),
-    High=('hestonPrice', 'max')
-).reset_index()
+if 'hestonPrice' not in options_df.columns:
+    st.error("'hestonPrice' column is missing. Check Heston model calculations.")
+    st.stop()
 
-st.write("### Low, Mid, and High Prices by Tranche")
-st.table(tranche_summary)
+if options_df.empty:
+    st.error("No valid options data available after filtering. Please adjust your inputs.")
+    st.stop()
+
+st.write("Available columns in options_df:", options_df.columns)
+
+if 'tranche' not in options_df.columns:
+    st.error("'tranche' column is missing. Check moneyness binning.")
+    st.stop()
+
+if options_df[['hestonPrice', 'tranche']].isna().any().any():
+    st.warning("Some rows have missing values in 'hestonPrice' or 'tranche'. These rows will be excluded.")
+    options_df = options_df.dropna(subset=['hestonPrice', 'tranche'])
+
+if options_df.empty:
+    st.error("No valid options data available after removing rows with missing values.")
+    st.stop()
+
+try:
+    tranche_summary = options_df.groupby('tranche').agg(
+        Low=('hestonPrice', 'min'),
+        Mid=('hestonPrice', 'mean'),
+        High=('hestonPrice', 'max')
+    ).reset_index()
+
+    st.write("### Low, Mid, and High Prices by Tranche")
+    st.table(tranche_summary)
+except KeyError as e:
+    st.error(f"Error in calculating tranche summary: {e}")
+    st.stop()
 
 Y = options_df['strike'].values
 X = options_df['timeToExpiration'].values
