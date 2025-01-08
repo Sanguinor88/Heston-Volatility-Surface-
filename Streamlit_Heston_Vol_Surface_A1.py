@@ -8,7 +8,7 @@ from scipy.integrate import quad
 import plotly.graph_objects as go
 
 # Title
-st.title("Implied Volatility Surface Area")
+st.title("Implied Volatility Surface Area with Greeks")
 
 # Sidebar Input Parameters
 st.sidebar.header("Input Parameters")
@@ -101,6 +101,24 @@ def calculate_greeks(S, K, T, r, sigma):
 
     return delta, gamma, theta, vega, rho
 
+# Calculate Implied Volatility
+def calculate_implied_volatility(S, K, T, r, mid_price):
+    if T <= 0 or mid_price <= 0:
+        return np.nan
+
+    def objective_function(vol):
+        d1 = (np.log(S / K) + (r + 0.5 * vol ** 2) * T) / (vol * np.sqrt(T))
+        d2 = d1 - vol * np.sqrt(T)
+        theoretical_price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        return theoretical_price - mid_price
+
+    try:
+        implied_vol = brentq(objective_function, 1e-6, 5)
+    except ValueError:
+        implied_vol = np.nan
+
+    return implied_vol
+
 # Main Code Execution
 spot_price, options_df = fetch_data(ticker_symbol)
 
@@ -117,20 +135,30 @@ if spot_price and not options_df.empty:
     max_strike = spot_price * (max_strike_price_pct / 100)
     options_df = options_df[(options_df["strike"] >= min_strike) & (options_df["strike"] <= max_strike)]
 
-    # Calculate Greeks for each option
+    # Calculate Greeks and Implied Volatility for each option
     greeks = []
     for _, row in options_df.iterrows():
         try:
+            implied_vol = calculate_implied_volatility(
+                S=spot_price,
+                K=row["strike"],
+                T=row["timeToExpiration"],
+                r=Risk_Free_Rate,
+                mid_price=row["mid"]
+            )
+
             delta, gamma, theta, vega, rho = calculate_greeks(
                 S=spot_price,
                 K=row["strike"],
                 T=row["timeToExpiration"],
                 r=Risk_Free_Rate,
-                sigma=sigma,
+                sigma=implied_vol if not np.isnan(implied_vol) else sigma,
             )
+
             greeks.append({
                 "strike": row["strike"],
                 "expirationDate": row["expirationDate"],
+                "impliedVolatility": implied_vol,
                 "delta": delta,
                 "gamma": gamma,
                 "theta": theta,
@@ -140,39 +168,44 @@ if spot_price and not options_df.empty:
         except Exception as e:
             st.warning(f"Error calculating Greeks for strike={row['strike']}: {e}")
 
-    # Display Greeks Table
+    # Create DataFrames
     greeks_df = pd.DataFrame(greeks)
-    st.write("### Options Greeks")
-    st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
+
+    # Volatility Surface Plot
+    st.write("### Implied Volatility Surface Area")
+    if not greeks_df.empty:
+        X = greeks_df["impliedVolatility"].values
+        Y = greeks_df["timeToExpiration"].values
+        Z = greeks_df["strike"].values
+
+        fig = go.Figure(data=[go.Surface(
+            x=X, y=Y, z=Z, colorscale="Viridis", colorbar_title="Strike Price ($)"
+        )])
+        fig.update_layout(
+            title=f"Implied Volatility Surface for {ticker_symbol}",
+            scene=dict(
+                xaxis_title="Implied Volatility",
+                yaxis_title="Time to Maturity (Years)",
+                zaxis_title="Strike Price ($)"
+            ),
+            autosize=False,
+            width=900,
+            height=800,
+        )
+
+        st.plotly_chart(fig)
+    else:
+        st.error("No valid data available for the volatility surface.")
 
     # Display Options Prices Table
     st.write("### Options Prices")
     st.dataframe(options_df[["strike", "expirationDate", "bid", "ask", "mid"]])
 
-    # 3D Surface Plot for Greeks (Delta as an Example)
-    X = greeks_df["strike"].values
-    Y = greeks_df["expirationDate"].map(lambda x: (x - today).days).values
-    Z = greeks_df["delta"].values
-
-    fig = go.Figure(data=[go.Surface(
-        x=X, y=Y, z=Z, colorscale="Viridis", colorbar_title="Delta"
-    )])
-    fig.update_layout(
-        title=f"Delta Surface for {ticker_symbol}",
-        scene=dict(
-            xaxis_title="Strike Price ($)",
-            yaxis_title="Days to Expiration",
-            zaxis_title="Delta",
-        ),
-        autosize=False,
-        width=900,
-        height=800,
-    )
-
-    st.plotly_chart(fig)
+    # Display Greeks Table
+    st.write("### Options Greeks")
+    st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
 else:
     st.error("Failed to retrieve valid options data. Please check your inputs.")
-
 
 st.write("---")
 st.markdown(
