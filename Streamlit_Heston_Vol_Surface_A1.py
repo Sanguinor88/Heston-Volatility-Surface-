@@ -10,6 +10,7 @@ from scipy.integrate import quad
 import plotly.graph_objects as go
 
 st.title('Implied Volatility Surface Area')
+st.sidebar.write('By Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241')
 
 def heston_call_price(S, K, T, r, v0, kappa, theta, sigma, rho, q=0):
     def integrand(phi, Pnum):
