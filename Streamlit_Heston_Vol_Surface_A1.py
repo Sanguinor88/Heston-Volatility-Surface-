@@ -179,14 +179,14 @@ if spot_price and not options_df.empty:
         st.stop()
 
     # Extract valid data for plotting
-    X = valid_data["impliedVolatility"].values
+    X = valid_data["strike"].values
     Y = valid_data["timeToExpiration"].values
-    Z = valid_data["strike"].values
+    Z = valid_data["impliedVolatility"].values
 
     # Check ranges of X, Y, Z for better debugging
-    st.write("Implied Volatility (X-axis) range:", X.min(), X.max())
+    st.write("Strike Price (X-axis) range:", X.min(), X.max())
     st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
-    st.write("Strike Price (Z-axis) range:", Z.min(), Z.max())
+    st.write("Implied Volatility (Z-axis) range:", Z.min(), Z.max())
 
     # Create a grid for the surface
     xi = np.linspace(X.min(), X.max(), 50)
@@ -199,14 +199,14 @@ if spot_price and not options_df.empty:
     # Plot the surface
     st.write("### Implied Volatility Surface Area")
     fig = go.Figure(data=[go.Surface(
-        x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Strike Price ($)"
+        x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Implied Volatility"
     )])
     fig.update_layout(
         title=f"Implied Volatility Surface for {ticker_symbol}",
         scene=dict(
-            xaxis_title="Implied Volatility",
+            xaxis_title="Strike Price ($)",
             yaxis_title="Time to Maturity (Years)",
-            zaxis_title="Strike Price ($)"
+            zaxis_title="Implied Volatility"
         ),
         autosize=False,
         width=900,
