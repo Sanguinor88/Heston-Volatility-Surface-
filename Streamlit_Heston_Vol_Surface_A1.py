@@ -244,9 +244,12 @@ if missing_columns:
 st.write("Options DataFrame (first few rows):")
 st.write(options_df.head())
 
-# Calculate hestonPrice with error handling
+# Function to safely calculate Heston call price with detailed logging
 def safe_heston_call_price(row):
     try:
+        # Debug: Log input parameters
+        st.write(f"Calculating for strike={row['strike']}, T={row['timeToExpiration']}, mid={row['mid']}")
+        
         return heston_call_price(
             S=spot_price,
             K=row['strike'],
@@ -263,16 +266,28 @@ def safe_heston_call_price(row):
         st.warning(f"Error calculating hestonPrice for strike {row['strike']}, T={row['timeToExpiration']}: {e}")
         return np.nan
 
+# Filter out rows with very short time to expiration
+filtered_options_df = options_df[options_df['timeToExpiration'] > 0.01]
+
+# Check if there are valid rows remaining
+if filtered_options_df.empty:
+    st.error("No valid options data after filtering for time to expiration. Please check your input parameters.")
+    st.stop()
+
+# Calculate hestonPrice with error handling
 with st.spinner('Calculating option prices using Heston model...'):
-    options_df['hestonPrice'] = options_df.apply(safe_heston_call_price, axis=1)
+    filtered_options_df['hestonPrice'] = filtered_options_df.apply(safe_heston_call_price, axis=1)
 
 # Drop rows with NaN hestonPrice
-options_df.dropna(subset=['hestonPrice'], inplace=True)
+filtered_options_df.dropna(subset=['hestonPrice'], inplace=True)
 
 # Check if hestonPrice calculation succeeded
-if options_df.empty:
-    st.error("All Heston model calculations failed. Please check your input parameters.")
+if filtered_options_df.empty:
+    st.error("All Heston model calculations failed. Please check your input parameters or model configuration.")
     st.stop()
+
+# Update options_df with successful calculations
+options_df = filtered_options_df
 
 # Calculate tranche summary
 try:
