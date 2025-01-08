@@ -154,18 +154,33 @@ except Exception as e:
     st.error(f'An error occurred while fetching spot price data: {e}')
     st.stop()
 
-# Validate spot_price
-if pd.isna(spot_price):
-    st.error("Spot price is invalid or missing. Unable to calculate moneyness.")
+# Validate 'expirationDate' column
+if 'expirationDate' not in options_df.columns:
+    st.error("'expirationDate' column is missing. Unable to calculate time to expiration.")
     st.stop()
 
-# Validate that options_df has valid strikes
-if options_df['strike'].isna().any():
-    st.warning("Some strike prices are missing or invalid. These rows will be removed.")
-    options_df = options_df.dropna(subset=['strike'])
+# Calculate 'daysToExpiration'
+try:
+    options_df['daysToExpiration'] = (options_df['expirationDate'] - today).dt.days
+except Exception as e:
+    st.error(f"Error calculating 'daysToExpiration': {e}")
+    st.stop()
 
-if options_df.empty:
-    st.error("No valid option data available after filtering strike prices. Please adjust your inputs.")
+# Check for invalid or missing 'daysToExpiration'
+if options_df['daysToExpiration'].isna().any() or (options_df['daysToExpiration'] <= 0).all():
+    st.error("Invalid or missing 'daysToExpiration'. Ensure expiration dates are valid and in the future.")
+    st.stop()
+
+# Calculate 'timeToExpiration'
+try:
+    options_df['timeToExpiration'] = options_df['daysToExpiration'] / 365
+except Exception as e:
+    st.error(f"Error calculating 'timeToExpiration': {e}")
+    st.stop()
+
+# Validate 'timeToExpiration'
+if options_df['timeToExpiration'].isna().any() or options_df['timeToExpiration'].empty:
+    st.error("Invalid or missing 'timeToExpiration'. Unable to continue.")
     st.stop()
 
 # Calculate moneyness
