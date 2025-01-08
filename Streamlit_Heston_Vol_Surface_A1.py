@@ -8,7 +8,7 @@ from scipy.integrate import quad
 import plotly.graph_objects as go
 
 # Title
-st.title("Implied Volatility Surface Area with Greeks")
+st.title("Implied Volatility Surface Area")
 
 # Sidebar Input Parameters
 st.sidebar.header("Input Parameters")
@@ -158,6 +158,7 @@ if spot_price and not options_df.empty:
             greeks.append({
                 "strike": row["strike"],
                 "expirationDate": row["expirationDate"],
+                "timeToExpiration": row["timeToExpiration"],
                 "impliedVolatility": implied_vol,
                 "delta": delta,
                 "gamma": gamma,
