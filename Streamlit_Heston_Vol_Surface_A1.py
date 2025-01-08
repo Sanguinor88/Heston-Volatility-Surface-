@@ -186,14 +186,22 @@ options_df.sort_values('strike', inplace=True)
 
 options_df['moneyness'] = options_df['strike'] / spot_price
 
-if options_df['moneyness'].nunique() < 2:
-    raise ValueError("Insufficient variation in moneyness values to create bins.")
+# Check for variation in moneyness values
+moneyness_min = options_df['moneyness'].min()
+moneyness_max = options_df['moneyness'].max()
 
-moneyness_bins = np.linspace(options_df['moneyness'].min(), options_df['moneyness'].max(), 4)
+if moneyness_min == moneyness_max:
+    st.warning("All moneyness values are identical. Default bins will be applied.")
+    moneyness_bins = [moneyness_min - 0.1, moneyness_min, moneyness_min + 0.1]
+else:
+    moneyness_bins = np.linspace(moneyness_min, moneyness_max, 4)
 
+# Ensure bins are valid
 if len(set(moneyness_bins)) < len(moneyness_bins):
-    raise ValueError("Cannot create valid moneyness bins from current data.")
+    st.error("Unable to create valid moneyness bins. Please check the input data.")
+    st.stop()
 
+# Add tranches
 tranches = ['Low', 'Mid', 'High']
 options_df['tranche'] = pd.cut(
     options_df['moneyness'], 
