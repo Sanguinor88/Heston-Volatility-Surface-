@@ -76,7 +76,7 @@ rho = st.sidebar.number_input("Correlation (rho)", value=-0.7, step=0.1)
 
 st.sidebar.header('Strike Price Inputs')
 min_strike_price_pct = st.sidebar.number_input(
-    'Minimum Strike Price',
+    'Minimum Strike Price %',
     min_value=10.00,
     max_value=499.00,
     value=80.00,
@@ -84,7 +84,7 @@ min_strike_price_pct = st.sidebar.number_input(
     format="%.1f"
 )
 max_strike_price_pct = st.sidebar.number_input(
-    'Maximum Strike Price',
+    'Maximum Strike Price %',
     min_value=11.0,
     max_value=500.00,
     value=130.00,
@@ -186,10 +186,13 @@ options_df.sort_values('strike', inplace=True)
 
 options_df['moneyness'] = options_df['strike'] / spot_price
 
+if options_df['moneyness'].nunique() < 2:
+    raise ValueError("Insufficient variation in moneyness values to create bins.")
+
 moneyness_bins = np.linspace(options_df['moneyness'].min(), options_df['moneyness'].max(), 4)
 
-if not np.all(np.diff(moneyness_bins) > 0):
-    raise ValueError("moneyness_bins must increase monotonically.")
+if len(set(moneyness_bins)) < len(moneyness_bins):
+    raise ValueError("Cannot create valid moneyness bins from current data.")
 
 tranches = ['Low', 'Mid', 'High']
 options_df['tranche'] = pd.cut(
