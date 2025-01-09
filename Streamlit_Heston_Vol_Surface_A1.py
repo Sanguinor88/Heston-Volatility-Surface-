@@ -7,10 +7,8 @@ from scipy.optimize import brentq
 from scipy.interpolate import griddata
 import plotly.graph_objects as go
 
-# Title
 st.title("Implied Volatility Surface Area")
 
-# Sidebar Input Parameters
 st.sidebar.header("Input Parameters")
 st.sidebar.write("Heston Model Adjustments.")
 
@@ -22,7 +20,6 @@ Risk_Free_Rate = st.sidebar.number_input(
     "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
 )
 
-# Strike Price Input
 st.sidebar.header("Strike Price Inputs")
 min_strike_price_pct = st.sidebar.number_input(
     "Minimum Strike Price",
@@ -45,17 +42,14 @@ if min_strike_price_pct >= max_strike_price_pct:
     st.sidebar.error("Minimum percentage must be less than the maximum.")
     st.stop()
 
-# Heston Model Parameters (set default values)
 kappa = 1.6
 theta = 0.04
 sigma = 0.2
 rho = -0.7
 
-# Fetch Spot Price and Options Data
 def fetch_data(ticker_symbol):
     ticker = yf.Ticker(ticker_symbol)
     
-    # Fetch spot price
     try:
         spot_history = ticker.history(period="1d")
         spot_price = spot_history["Close"].iloc[-1]
@@ -63,7 +57,6 @@ def fetch_data(ticker_symbol):
         st.error(f"Error fetching spot price: {e}")
         return None, None
 
-    # Fetch options data
     try:
         expirations = ticker.options
         options_data = []
@@ -88,7 +81,6 @@ def fetch_data(ticker_symbol):
         st.error(f"Error fetching options data: {e}")
         return None, None
 
-# Calculate Greeks
 def calculate_greeks(S, K, T, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
@@ -101,7 +93,6 @@ def calculate_greeks(S, K, T, r, sigma):
 
     return delta, gamma, theta, vega, rho
 
-# Calculate Implied Volatility
 def calculate_implied_volatility(S, K, T, r, mid_price):
     if T <= 0 or mid_price <= 0:
         return np.nan
@@ -119,23 +110,19 @@ def calculate_implied_volatility(S, K, T, r, mid_price):
 
     return implied_vol
 
-# Main Code Execution
 spot_price, options_df = fetch_data(ticker_symbol)
 
 if spot_price and not options_df.empty:
     today = pd.Timestamp("today").normalize()
 
-    # Add Time to Expiration
     options_df["daysToExpiration"] = (options_df["expirationDate"] - today).dt.days
     options_df = options_df[options_df["daysToExpiration"] > 0]
     options_df["timeToExpiration"] = options_df["daysToExpiration"] / 365
 
-    # Filter options by strike price range
     min_strike = spot_price * (min_strike_price_pct / 100)
     max_strike = spot_price * (max_strike_price_pct / 100)
     options_df = options_df[(options_df["strike"] >= min_strike) & (options_df["strike"] <= max_strike)]
 
-    # Calculate Greeks and Implied Volatility for each option
     greeks = []
     for _, row in options_df.iterrows():
         try:
@@ -169,34 +156,27 @@ if spot_price and not options_df.empty:
         except Exception as e:
             st.warning(f"Error calculating Greeks for strike={row['strike']}: {e}")
 
-    # Create DataFrames
     greeks_df = pd.DataFrame(greeks)
 
-    # Debugging and validation
     valid_data = greeks_df.dropna(subset=["impliedVolatility", "timeToExpiration", "strike"])
     if valid_data.empty:
         st.error("No valid data available for the volatility surface. Please check input parameters.")
         st.stop()
 
-    # Extract valid data for plotting
     X = valid_data["strike"].values
     Y = valid_data["timeToExpiration"].values
     Z = valid_data["impliedVolatility"].values
 
-    # Check ranges of X, Y, Z for better debugging
     st.write("Strike Price (X-axis) range:", X.min(), X.max())
     st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
     st.write("Implied Volatility (Z-axis) range:", Z.min(), Z.max())
 
-    # Create a grid for the surface
     xi = np.linspace(X.min(), X.max(), 50)
     yi = np.linspace(Y.min(), Y.max(), 50)
     xi, yi = np.meshgrid(xi, yi)
 
-    # Interpolate Z values over the grid
     zi = griddata((X, Y), Z, (xi, yi), method="linear")
 
-    # Plot the surface
     st.write("### Implied Volatility Surface Area")
     fig = go.Figure(data=[go.Surface(
         x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Implied Volatility"
@@ -215,11 +195,9 @@ if spot_price and not options_df.empty:
 
     st.plotly_chart(fig)
 
-    # Display Options Prices Table
     st.write("### Options Prices")
     st.dataframe(options_df[["strike", "expirationDate", "bid", "ask", "mid"]])
 
-    # Display Greeks Table
     st.write("### Options Greeks")
     st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
 else:
