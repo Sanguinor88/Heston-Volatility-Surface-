@@ -7,7 +7,7 @@ from scipy.optimize import brentq
 from scipy.interpolate import griddata
 import plotly.graph_objects as go
 
-st.title("Implied Volatility Surface Area")
+st.title(" Heston Model Implied Volatility Surface Area")
 
 st.sidebar.header("Input Parameters")
 st.sidebar.write("Heston Model Adjustments.")
