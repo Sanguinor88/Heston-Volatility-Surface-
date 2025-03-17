@@ -17,8 +17,7 @@ ticker_symbol = st.sidebar.text_input(
 ).upper()
 
 Risk_Free_Rate = st.sidebar.number_input(
-    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
-)
+    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"")
 
 st.sidebar.header("Strike Price Inputs")
 min_strike_price_pct = st.sidebar.number_input(
@@ -52,49 +51,51 @@ def fetch_data(ticker_symbol):
     
     try:
         spot_history = ticker.history(period="1d")
-        if spot_history.empty or 'Close' not in spot_history.columns:
+        if spot_history.empty or "Close" not in spot_history.columns:
             st.error("Failed to retrieve spot price. The specified ticker may be invalid, or the API may be experiencing downtime.")
             return None, None
         spot_price = spot_history["Close"].dropna()
         if spot_price.empty:
-            st.error("Spot price data is empty. Possible issue with yfinance API.")
+            st.error("Failed to retrueve spot price data is empty.")
             return None, None
         spot_price = spot_price.iloc[-1]
     except Exception as e:
-        st.error(f"Error fetching spot price: {e}")
+        st.error(f"An error occurred while fetching spot price data: {e}")
         return None, None
 
     try:
         expirations = ticker.options
         if not expirations:
-            st.error("No options data available.")
+            st.error(f"No options data available for {ticker_symbol}. The ticker may not have options or API issues may exist.")
             return spot_price, None
-        options_data = []
+        option_data = []
 
         for exp_date in expirations:
-            opt_chain = ticker.option_chain(exp_date)
-            calls = opt_chain.calls
-            if calls.empty:
+            try:
+                opt_chain = ticker.option_chain(exp_date)
+                calls = opt_chain.calls
+                if calls.empty:
+                    continue
+                calls = calls[(calls["bid"].fillna(0) > 0) & (calls["ask"].fillna(0) > 0)]
+                if calls.empty:
+                    continue
+                for _, row in calls.iterrows():
+                    mid_price = (row["bid"] + row["ask"]) / 2
+                    option_data.append({
+                        "expirationDate": pd.Timestamp(exp_date),
+                        "strike": row["strike"],
+                        "bid": row["bid"],
+                        "ask": row["ask"],
+                        "mid": mid_price,
+                    })
+            except Exception as e:
+                st.warning(f"Failed to fetch option chain for {exp_date}: {e}")
                 continue
-            calls = calls[(calls["bid"].fillna(0) > 0) & (calls["ask"].fillna(0) > 0)]
-            if calls.empty:
-                continue
-
-            for _, row in calls.iterrows():
-                mid_price = (row["bid"] + row["ask"]) / 2
-                options_data.append({
-                    "expirationDate": pd.Timestamp(exp_date),
-                    "strike": row["strike"],
-                    "bid": row["bid"],
-                    "ask": row["ask"],
-                    "mid": mid_price,
-                })
-
-        if not options_data:
-            st.error("No valid options data available.")
+        if not option_data:
+            st.error("No valid options data available after filtering.")
             return spot_price, None
         
-        return spot_price, pd.DataFrame(options_data)
+        return spot_price, pd.DataFrame(option_data)
     except Exception as e:
         st.error(f"Error fetching options data: {e}")
         return None, None
@@ -149,4 +150,3 @@ st.write("---")
 st.markdown(
     "By Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241"
 )
-
