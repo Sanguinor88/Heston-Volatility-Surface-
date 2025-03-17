@@ -17,8 +17,7 @@ ticker_symbol = st.sidebar.text_input(
 ).upper()
 
 Risk_Free_Rate = st.sidebar.number_input(
-    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
-)
+    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"")
 
 st.sidebar.header("Strike Price Inputs")
 min_strike_price_pct = st.sidebar.number_input(
@@ -52,19 +51,33 @@ def fetch_data(ticker_symbol):
     
     try:
         spot_history = ticker.history(period="1d")
-        spot_price = spot_history["Close"].iloc[-1]
+        if spot_history.empty or 'Close' not in spot_history.columns:
+            st.error("Failed to retrieve spot price. The ticker might be invalid or the API might be down.")
+            return None, None
+        spot_price = spot_history["Close"].dropna()
+        if spot_price.empty:
+            st.error("Spot price data is empty. Possible issue with yfinance API.")
+            return None, None
+        spot_price = spot_price.iloc[-1]
     except Exception as e:
         st.error(f"Error fetching spot price: {e}")
         return None, None
 
     try:
         expirations = ticker.options
+        if not expirations:
+            st.error("No options data available. The ticker might not have listed options.")
+            return spot_price, None
         options_data = []
 
         for exp_date in expirations:
             opt_chain = ticker.option_chain(exp_date)
             calls = opt_chain.calls
-            calls = calls[(calls["bid"] > 0) & (calls["ask"] > 0)]
+            if calls.empty:
+                continue
+            calls = calls[(calls["bid"].fillna(0) > 0) & (calls["ask"].fillna(0) > 0)]
+            if calls.empty:
+                continue
 
             for _, row in calls.iterrows():
                 mid_price = (row["bid"] + row["ask"]) / 2
@@ -76,43 +89,18 @@ def fetch_data(ticker_symbol):
                     "mid": mid_price,
                 })
 
+        if not options_data:
+            st.error("No valid options data available.")
+            return spot_price, None
+        
         return spot_price, pd.DataFrame(options_data)
     except Exception as e:
         st.error(f"Error fetching options data: {e}")
         return None, None
 
-def calculate_greeks(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-
-    delta = norm.cdf(d1)
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    theta = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-    rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-
-    return delta, gamma, theta, vega, rho
-
-def calculate_implied_volatility(S, K, T, r, mid_price):
-    if T <= 0 or mid_price <= 0:
-        return np.nan
-
-    def objective_function(vol):
-        d1 = (np.log(S / K) + (r + 0.5 * vol ** 2) * T) / (vol * np.sqrt(T))
-        d2 = d1 - vol * np.sqrt(T)
-        theoretical_price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-        return theoretical_price - mid_price
-
-    try:
-        implied_vol = brentq(objective_function, 1e-6, 5)
-    except ValueError:
-        implied_vol = np.nan
-
-    return implied_vol
-
 spot_price, options_df = fetch_data(ticker_symbol)
 
-if spot_price and not options_df.empty:
+if spot_price and options_df is not None and not options_df.empty:
     today = pd.Timestamp("today").normalize()
 
     options_df["daysToExpiration"] = (options_df["expirationDate"] - today).dt.days
@@ -123,53 +111,13 @@ if spot_price and not options_df.empty:
     max_strike = spot_price * (max_strike_price_pct / 100)
     options_df = options_df[(options_df["strike"] >= min_strike) & (options_df["strike"] <= max_strike)]
 
-    greeks = []
-    for _, row in options_df.iterrows():
-        try:
-            implied_vol = calculate_implied_volatility(
-                S=spot_price,
-                K=row["strike"],
-                T=row["timeToExpiration"],
-                r=Risk_Free_Rate,
-                mid_price=row["mid"]
-            )
-
-            delta, gamma, theta, vega, rho = calculate_greeks(
-                S=spot_price,
-                K=row["strike"],
-                T=row["timeToExpiration"],
-                r=Risk_Free_Rate,
-                sigma=implied_vol if not np.isnan(implied_vol) else sigma,
-            )
-
-            greeks.append({
-                "strike": row["strike"],
-                "expirationDate": row["expirationDate"],
-                "timeToExpiration": row["timeToExpiration"],
-                "impliedVolatility": implied_vol,
-                "delta": delta,
-                "gamma": gamma,
-                "theta": theta,
-                "vega": vega,
-                "rho": rho,
-            })
-        except Exception as e:
-            st.warning(f"Error calculating Greeks for strike={row['strike']}: {e}")
-
-    greeks_df = pd.DataFrame(greeks)
-
-    valid_data = greeks_df.dropna(subset=["impliedVolatility", "timeToExpiration", "strike"])
-    if valid_data.empty:
-        st.error("No valid data available for the volatility surface. Please check input parameters.")
+    if options_df.empty:
+        st.error("No options available in the specified strike range.")
         st.stop()
 
-    X = valid_data["strike"].values
-    Y = valid_data["timeToExpiration"].values
-    Z = valid_data["impliedVolatility"].values
-
-    st.write("Strike Price (X-axis) range:", X.min(), X.max())
-    st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
-    st.write("Implied Volatility (Z-axis) range:", Z.min(), Z.max())
+    X = options_df["strike"].values
+    Y = options_df["timeToExpiration"].values
+    Z = options_df["mid"].values
 
     xi = np.linspace(X.min(), X.max(), 50)
     yi = np.linspace(Y.min(), Y.max(), 50)
@@ -177,16 +125,15 @@ if spot_price and not options_df.empty:
 
     zi = griddata((X, Y), Z, (xi, yi), method="linear")
 
-    st.write("### Implied Volatility Surface Area")
     fig = go.Figure(data=[go.Surface(
-        x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Implied Volatility"
+        x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Mid Price"
     )])
     fig.update_layout(
         title=f"Implied Volatility Surface for {ticker_symbol}",
         scene=dict(
             xaxis_title="Strike Price ($)",
             yaxis_title="Time to Maturity (Years)",
-            zaxis_title="Implied Volatility"
+            zaxis_title="Mid Price"
         ),
         autosize=False,
         width=900,
@@ -194,12 +141,6 @@ if spot_price and not options_df.empty:
     )
 
     st.plotly_chart(fig)
-
-    st.write("### Options Prices")
-    st.dataframe(options_df[["strike", "expirationDate", "bid", "ask", "mid"]])
-
-    st.write("### Options Greeks")
-    st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
 else:
     st.error("Failed to retrieve valid options data. Please check your inputs.")
 
@@ -207,3 +148,4 @@ st.write("---")
 st.markdown(
     "By Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241"
 )
+
