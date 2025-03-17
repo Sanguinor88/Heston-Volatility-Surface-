@@ -53,7 +53,7 @@ def fetch_data(ticker_symbol):
     try:
         spot_history = ticker.history(period="1d")
         if spot_history.empty or 'Close' not in spot_history.columns:
-            st.error("Failed to retrieve spot price. The ticker might be invalid or the API might be down.")
+            st.error("Failed to retrieve spot price. The specified ticker may be invalid, or the API may be experiencing downtime.")
             return None, None
         spot_price = spot_history["Close"].dropna()
         if spot_price.empty:
@@ -67,7 +67,7 @@ def fetch_data(ticker_symbol):
     try:
         expirations = ticker.options
         if not expirations:
-            st.error("No options data available. The ticker might not have listed options.")
+            st.error("No options data available.")
             return spot_price, None
         options_data = []
 
