@@ -1,107 +1,42 @@
 import streamlit as st
-import yfinance as yf
+import yfinance as yf 
 import pandas as pd
 import numpy as np
+from datetime import timedelta
 from scipy.stats import norm
 from scipy.optimize import brentq
 from scipy.interpolate import griddata
+from scipy.integrate import quad
 import plotly.graph_objects as go
 
-st.title("Implied Volatility Surface Area")
+st.title('Implied Volatility Surface Area')
 
-st.sidebar.header("Input Parameters")
-st.sidebar.write("Heston Model Adjustments.")
+def heston_call_price(S, K, T, r, v0, kappa, theta, sigma, rho, q=0):
+    def integrand(phi, Pnum):
+        i = complex(0, 1)  
+        u = 0.5 if Pnum == 1 else -0.5
+        b = kappa + u * rho * sigma
+        a = kappa * theta
+        d = np.sqrt((rho * sigma * i * phi - b) ** 2 - sigma ** 2 * (2 * u * i * phi - phi ** 2))
+        g = (b - rho * sigma * i * phi + d) / ((b - rho * sigma * i * phi - d) + 1e-8)
 
-ticker_symbol = st.sidebar.text_input(
-    "Enter Ticker", value="SPY", max_chars=10
-).upper()
+        C = (r - q) * i * phi * T + (a / sigma ** 2) * ((b - rho * sigma * i * phi + d) * T - 2 * np.log((1 - g * np.exp(d * T)) / (1 - g)))
+        D = ((b - rho * sigma * i * phi + d) / sigma ** 2) * ((1 - np.exp(d * T)) / (1 - g * np.exp(d * T)))
+        f = np.exp(C + D * v0 + i * phi * np.log(S * np.exp(-q * T)))
+        return np.real(np.exp(-i * phi * np.log(K)) * f / (i * phi))
 
-Risk_Free_Rate = st.sidebar.number_input(
-    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
-)
+    P1 = 0.5 + (1 / np.pi) * quad(lambda phi: integrand(phi, 1), 0, np.inf, limit=100)[0]
+    P2 = 0.5 + (1 / np.pi) * quad(lambda phi: integrand(phi, 2), 0, np.inf, limit=100)[0]
 
-st.sidebar.header("Strike Price Inputs")
-min_strike_price_pct = st.sidebar.number_input(
-    "Minimum Strike Price",
-    min_value=10.00,
-    max_value=499.00,
-    value=80.00,
-    step=1.0,
-    format="%.1f"
-)
-max_strike_price_pct = st.sidebar.number_input(
-    "Maximum Strike Price",
-    min_value=11.0,
-    max_value=500.00,
-    value=130.00,
-    step=1.0,
-    format="%.1f"
-)
+    call_price = np.exp(-q * T) * S * P1 - np.exp(-r * T) * K * P2
+    return call_price
 
-if min_strike_price_pct >= max_strike_price_pct:
-    st.sidebar.error("Minimum percentage must be less than the maximum.")
-    st.stop()
-
-kappa = 1.6
-theta = 0.04
-sigma = 0.2
-rho = -0.7
-
-def fetch_data(ticker_symbol):
-    ticker = yf.Ticker(ticker_symbol)
-    
-    try:
-        spot_history = ticker.history(period="1d")
-        spot_price = spot_history["Close"].iloc[-1]
-    except Exception as e:
-        st.error(f"Error fetching spot price: {e}")
-        return None, None
-
-    try:
-        expirations = ticker.options
-        options_data = []
-
-        for exp_date in expirations:
-            opt_chain = ticker.option_chain(exp_date)
-            calls = opt_chain.calls
-            calls = calls[(calls["bid"] > 0) & (calls["ask"] > 0)]
-
-            for _, row in calls.iterrows():
-                mid_price = (row["bid"] + row["ask"]) / 2
-                options_data.append({
-                    "expirationDate": pd.Timestamp(exp_date),
-                    "strike": row["strike"],
-                    "bid": row["bid"],
-                    "ask": row["ask"],
-                    "mid": mid_price,
-                })
-
-        return spot_price, pd.DataFrame(options_data)
-    except Exception as e:
-        st.error(f"Error fetching options data: {e}")
-        return None, None
-
-def calculate_greeks(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-
-    delta = norm.cdf(d1)
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    theta = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-    rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-
-    return delta, gamma, theta, vega, rho
-
-def calculate_implied_volatility(S, K, T, r, mid_price):
-    if T <= 0 or mid_price <= 0:
+def implied_volatility(S, K, T, r, price, v0, kappa, theta, sigma, rho, q):
+    if T <= 0 or price <= 0:
         return np.nan
 
-    def objective_function(vol):
-        d1 = (np.log(S / K) + (r + 0.5 * vol ** 2) * T) / (vol * np.sqrt(T))
-        d2 = d1 - vol * np.sqrt(T)
-        theoretical_price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-        return theoretical_price - mid_price
+    def objective_function(sigma):
+        return heston_call_price(S, K, T, r, v0, kappa, theta, sigma, rho, q) - price
 
     try:
         implied_vol = brentq(objective_function, 1e-6, 5)
@@ -110,100 +45,67 @@ def calculate_implied_volatility(S, K, T, r, mid_price):
 
     return implied_vol
 
-spot_price, options_df = fetch_data(ticker_symbol)
+st.sidebar.header('Input Parameters')
+ticker_symbol = st.sidebar.text_input('Enter Ticker', value='SPY', max_chars=10).upper()
 
-if spot_price and not options_df.empty:
-    today = pd.Timestamp("today").normalize()
+Risk_Free_Rate = st.sidebar.number_input('Risk Free Rate (eg, 0.04 for 4%)', value=0.04, format="%.4f")
+dividend_yield = st.sidebar.number_input("Dividend Yield (eg, 0.04 for 4%)", value=0.02, format="%.4f")
 
-    options_df["daysToExpiration"] = (options_df["expirationDate"] - today).dt.days
-    options_df = options_df[options_df["daysToExpiration"] > 0]
-    options_df["timeToExpiration"] = options_df["daysToExpiration"] / 365
+st.sidebar.header('Heston Model Parameters')
+kappa = st.sidebar.number_input("Speed of Mean Reversion (kappa)", value=1.5, step=0.1)
+theta = st.sidebar.number_input("Long-Term Variance (theta)", value=0.04, step=0.01)
+sigma = st.sidebar.number_input("Volatility of Variance (sigma)", value=0.2, step=0.01)
+rho = st.sidebar.number_input("Correlation (rho)", value=-0.7, step=0.1)
 
-    min_strike = spot_price * (min_strike_price_pct / 100)
-    max_strike = spot_price * (max_strike_price_pct / 100)
-    options_df = options_df[(options_df["strike"] >= min_strike) & (options_df["strike"] <= max_strike)]
+st.sidebar.header('Strike Price Inputs')
+min_strike_price_pct = st.sidebar.number_input('Minimum Strike Price %', min_value=10.00, max_value=499.00, value=80.00, step=1.0, format="%.1f")
+max_strike_price_pct = st.sidebar.number_input('Maximum Strike Price %', min_value=11.0, max_value=500.00, value=130.00, step=1.0, format="%.1f")
 
-    greeks = []
-    for _, row in options_df.iterrows():
-        try:
-            implied_vol = calculate_implied_volatility(
-                S=spot_price,
-                K=row["strike"],
-                T=row["timeToExpiration"],
-                r=Risk_Free_Rate,
-                mid_price=row["mid"]
-            )
+ticker = yf.Ticker(ticker_symbol)
 
-            delta, gamma, theta, vega, rho = calculate_greeks(
-                S=spot_price,
-                K=row["strike"],
-                T=row["timeToExpiration"],
-                r=Risk_Free_Rate,
-                sigma=implied_vol if not np.isnan(implied_vol) else sigma,
-            )
+try:
+    spot_history = ticker.history(period='1y')  
+    spot_price = spot_history['Close'].dropna().iloc[-1]
+except Exception as e:
+    st.error(f"An error occurred while fetching spot price data: {e}")
+    st.stop()
 
-            greeks.append({
-                "strike": row["strike"],
-                "expirationDate": row["expirationDate"],
-                "timeToExpiration": row["timeToExpiration"],
-                "impliedVolatility": implied_vol,
-                "delta": delta,
-                "gamma": gamma,
-                "theta": theta,
-                "vega": vega,
-                "rho": rho,
+try:
+    expirations = ticker.options
+except Exception as e:
+    st.error(f'Failed to fetch options data for {ticker_symbol}: {e}')
+    st.stop()
+
+option_data = []
+for exp_date in expirations:
+    try:
+        opt_chain = ticker.option_chain(exp_date)
+        calls = opt_chain.calls
+        calls = calls[(calls['bid'].fillna(0) > 0) & (calls['ask'].fillna(0) > 0)]
+        for _, row in calls.iterrows():
+            option_data.append({
+                'expirationDate': pd.Timestamp(exp_date),
+                'strike': row['strike'],
+                'mid': (row['bid'] + row['ask']) / 2
             })
-        except Exception as e:
-            st.warning(f"Error calculating Greeks for strike={row['strike']}: {e}")
+    except Exception as e:
+        continue
 
-    greeks_df = pd.DataFrame(greeks)
+options_df = pd.DataFrame(option_data)
+options_df['timeToExpiration'] = (options_df['expirationDate'] - pd.Timestamp.today()).dt.days / 365
 
-    valid_data = greeks_df.dropna(subset=["impliedVolatility", "timeToExpiration", "strike"])
-    if valid_data.empty:
-        st.error("No valid data available for the volatility surface. Please check input parameters.")
-        st.stop()
+options_df['hestonPrice'] = options_df.apply(lambda row: heston_call_price(spot_price, row['strike'], row['timeToExpiration'], Risk_Free_Rate, theta, kappa, theta, sigma, rho, dividend_yield), axis=1)
 
-    X = valid_data["strike"].values
-    Y = valid_data["timeToExpiration"].values
-    Z = valid_data["impliedVolatility"].values
+fig = go.Figure(data=[go.Surface(
+    x=options_df['timeToExpiration'],
+    y=options_df['strike'],
+    z=options_df['hestonPrice'],
+    colorscale='Viridis'
+)])
 
-    st.write("Strike Price (X-axis) range:", X.min(), X.max())
-    st.write("Time to Expiration (Y-axis) range:", Y.min(), Y.max())
-    st.write("Implied Volatility (Z-axis) range:", Z.min(), Z.max())
+fig.update_layout(title=f'Heston Model Volatility Surface for {ticker_symbol}',
+                  scene=dict(xaxis_title='Time to Expiration', yaxis_title='Strike Price', zaxis_title='Option Price'))
 
-    xi = np.linspace(X.min(), X.max(), 50)
-    yi = np.linspace(Y.min(), Y.max(), 50)
-    xi, yi = np.meshgrid(xi, yi)
+st.plotly_chart(fig)
 
-    zi = griddata((X, Y), Z, (xi, yi), method="linear")
-
-    st.write("### Implied Volatility Surface Area")
-    fig = go.Figure(data=[go.Surface(
-        x=xi, y=yi, z=zi, colorscale="Viridis", colorbar_title="Implied Volatility"
-    )])
-    fig.update_layout(
-        title=f"Implied Volatility Surface for {ticker_symbol}",
-        scene=dict(
-            xaxis_title="Strike Price ($)",
-            yaxis_title="Time to Maturity (Years)",
-            zaxis_title="Implied Volatility"
-        ),
-        autosize=False,
-        width=900,
-        height=800,
-    )
-
-    st.plotly_chart(fig)
-
-    st.write("### Options Prices")
-    st.dataframe(options_df[["strike", "expirationDate", "bid", "ask", "mid"]])
-
-    st.write("### Options Greeks")
-    st.dataframe(greeks_df.style.format(precision=4).set_table_attributes("style='display:inline'"))
-else:
-    st.error("Failed to retrieve valid options data. Please check your inputs.")
-
-st.write("---")
-st.markdown(
-    "By: Stephen Chen & Jack Armstrong | linkedin.com/in/stephen-chen-60b2b3184 & linkedin.com/in/jack-armstrong-094932241"
-)
+st.markdown("By Stephen Chen & Jack Armstrong")
