@@ -17,7 +17,8 @@ ticker_symbol = st.sidebar.text_input(
 ).upper()
 
 Risk_Free_Rate = st.sidebar.number_input(
-    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"")
+    "Risk-Free Rate (e.g., 0.04 for 4%)", value=0.04, format="%.4f"
+    )
 
 st.sidebar.header("Strike Price Inputs")
 min_strike_price_pct = st.sidebar.number_input(
